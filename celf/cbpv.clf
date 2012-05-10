@@ -1,0 +1,556 @@
+% vim: syntax=twelf:softtabstop=3
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% mutually defined constructs
+val   : type.  % value
+comp  : type.  % computation
+dest  : type.  % lazy binding
+pos   : type.  % memory
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% values and computations
+lookup   : dest -> val.
+
+letv     : val -> (val -> comp) -> comp.
+
+produce  : val -> comp.
+bind     : comp -> (val -> comp) -> comp.
+
+thunk : comp -> val.
+force : val -> comp.
+
+inl   : val -> val.
+inr   : val -> val.
+case  : val -> (val -> comp) -> (val -> comp) -> comp.
+
+tuple : val -> val -> val.
+split : val -> (val -> val -> comp) -> comp.
+
+pop-tag        : comp -> comp -> comp.
+push-tag/inl   : comp -> comp.
+push-tag/inr   : comp -> comp.
+
+pop   : (val -> comp) -> comp.
+push  : val -> comp -> comp.
+
+% unit
+unit  : val.
+
+% empty
+abort : val -> comp.
+
+% parallel
+par   : comp -> (val -> comp) -> comp.
+wait  : val -> comp -> comp.
+
+% memory
+ref      : pos -> val.
+create   : val -> comp.
+get      : val -> comp.
+set      : val -> val -> comp.
+
+% recursion
+fix   : (val -> comp) -> comp.
+
+% inductive type
+folded   : val -> val.
+unfoldv  : val -> (val -> comp) -> comp.
+
+% co-inductive type
+foldc    : comp -> comp.
+unfoldc  : comp -> comp.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% machine states
+
+% stack
+stack          : type.
+nil            : stack.
+sink           : dest -> stack.
+cons-bind      : (val -> comp) -> stack -> stack.
+cons-val       : val -> stack -> stack.
+cons-tag/inl   : stack -> stack.
+cons-tag/inr   : stack -> stack.
+cons-unfoldc   : stack -> stack.
+
+cell : pos -> val -> type.
+#mode cell + -.
+binding : dest -> val -> type.
+#mode binding + -.
+run : comp -> stack -> type.
+#mode run - -.
+halt : comp -> type.
+#mode halt -.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% pretty printer to resolve lazy bindings
+
+printv : val -> val -> type.
+printc : comp -> comp -> type.
+pretty-cell : pos -> val -> type.
+#mode printv + -.
+#mode printc + -.
+#mode pretty-cell + -.
+
+printv/lookup :
+      printv (lookup X) V'
+   <- binding X V
+   <- printv V V'.
+
+printv/letv :
+      printc (letv V (\!v. M !v)) (letv V' (\!v. M' !v))
+   <- printv V V'
+   <- (Pi x. printv x x -> printc (M !x) (M' !x)).
+
+printc/produce :
+      printc (produce V) (produce V')
+   <- printv V V'.
+printc/bind :
+      printc (bind M1 (\!v. M2 !v)) (bind M1' (\!v. M2' !v))
+   <- printc M1 M1'
+   <- (Pi x. printv x x -> printc (M2 !x) (M2' !x)).
+
+printv/thunk :
+      printv (thunk M) (thunk M')
+   <- printc M M'.
+printc/force :
+      printc (force V) (force V')
+   <- printv V V'.
+
+printv/inl :
+      printv (inl V) (inl V')
+   <- printv V V'.
+printv/inr :
+      printv (inr V) (inr V')
+   <- printv V V'.
+printc/case :
+      printc
+         (case V  (\!v. M1  !v) (\!v. M2  !v))
+         (case V' (\!v. M1' !v) (\!v. M2' !v))
+   <- printv V V'
+   <- (Pi x. printv x x -> printc (M1 !x) (M1' !x))
+   <- (Pi x. printv x x -> printc (M2 !x) (M2' !x)).
+
+printv/tuple :
+      printv (tuple V1 V2) (tuple V1' V2')
+   <- printv V1 V1'
+   <- printv V2 V2'.
+print/split :
+      printc
+         (split V  (\!v1. \!v2. M  !v1 !v2))
+         (split V' (\!v1. \!v2. M' !v1 !v2))
+   <- printv V V'
+   <- (Pi x. printv x x
+      -> Pi y. printv y y
+      -> printc (M !x !y) (M' !x !y)).
+
+printc/push-tag/inl :
+      printc (push-tag/inl M) (push-tag/inl M')
+   <- printc M M'.
+printc/push-tag/inr :
+      printc (push-tag/inr M) (push-tag/inr M')
+   <- printc M M'.
+printc/pop-tag :
+      printc (pop-tag M1 M2) (pop-tag M1' M2')
+   <- printc M1 M1'
+   <- printc M2 M2'.
+
+printc/push :
+      printc (push V M) (push V' M')
+   <- printv V V'
+   <- printc M M'.
+printc/pop :
+      printc (pop (\!v. M !v)) (pop (\!v. M' !v))
+   <- (Pi x. printv x x -> printc (M !x) (M' !x)).
+
+% unit
+printv/unit :
+      printv unit unit.
+
+% empty
+print/abort :
+      printc (abort V) (abort V')
+   <- printv V V'.
+
+% parallel
+printc/par :
+      printc (par M1 (\!v. M2 !v)) (par M1' (\!v. M2' !v))
+   <- printc M1 M1'
+   <- (Pi x. printv x x -> printc (M2 !x) (M2' !x)).
+printc/wait :
+      printc (wait V M) (wait V' M')
+   <- printv V V'
+   <- printc M M'.
+
+% memory
+printv/ref :
+      printv (ref P) (ref P).
+printc/create :
+      printc (create V) (create V')
+   <- printv V V'.
+printc/get :
+      printc (get V) (get V')
+   <- printv V V'.
+printc/set :
+      printc (set V1 V2) (set V1' V2')
+   <- printv V1 V1'
+   <- printv V2 V2'.
+pretty-cell/print :
+      pretty-cell X V'
+   o- cell X V
+   <- printv V V'.
+
+% recursion
+printc/fix :
+      printc (fix (\!v. M !v)) (fix (\!v. M' !v))
+   <- (Pi x. printv x x -> printc (M !x) (M' !x)).
+
+% inductive type
+printv/folded :
+      printv (folded V) (folded V')
+   <- printv V V'.
+printc/unfoldv :
+      printc (unfoldv V (\!v. M !v)) (unfoldv V' (\!v. M' !v))
+   <- printv V V'
+   <- (Pi x. printv x x
+      -> printc (M !x) (M' !x)).
+
+% co-inductive type
+printc/foldc :
+      printc (foldc M) (foldc M')
+   <- printc M M'.
+printc/unfoldc :
+      printc (unfoldc M) (unfoldc M')
+   <- printc M M'.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% SSOS - run
+
+run/letv : run (letv V (\!y. M !y)) St
+   -o {Exists z. run (M !(lookup z)) St * !binding z V}.
+
+run/produce : run (produce V) (cons-bind (\!x. N !x) St)
+   -o {Exists z. run (N !(lookup z)) St * !binding z V}.
+run/bind : run (bind M (\!x. N !x)) St
+   -o {run M (cons-bind N St)}.
+
+run/force/lookup : run (force (lookup X)) St -o binding X V
+   -o {run (force V) St}.
+run/force : run (force (thunk M)) St
+   -o {run M St}.
+
+run/case/lookup : run (case (lookup X) B1 B2) St -o binding X V
+   -o {run (case V B1 B2) St}.
+run/case/inl : run (case (inl V) (\!v. M1 !v) (\!v. M2 !v)) St
+   -o {Exists z. run (M1 !(lookup z)) St * !binding z V}.
+run/case/inr : run (case (inr V) (\!v. M1 !v) (\!v. M2 !v)) St
+   -o {Exists z. run (M2 !(lookup z)) St * !binding z V}.
+
+run/split/lookup : run (split (lookup X) B) St -o binding X V
+   -o {run (split V B) St}.
+run/split : run (split (tuple V V') (\!x. (\!y. M !x !y))) St
+   -o {Exists z1. Exists z2.
+      run (M !(lookup z1) !(lookup z2)) St * !binding z1 V * !binding z2 V'}.
+
+run/push-tag/inl : run (push-tag/inl M) St
+   -o {run M (cons-tag/inl St)}.
+run/push-tag/inr : run (push-tag/inr M) St
+   -o {run M (cons-tag/inr St)}.
+run/pop-tag/inl : run (pop-tag M1 M2) (cons-tag/inl St)
+   -o {run M1 St}.
+run/pop-tag/inr : run (pop-tag M1 M2) (cons-tag/inr St)
+   -o {run M2 St}.
+
+run/push : run (push V M) St
+   -o {run M (cons-val V St)}.
+run/pop : run (pop (\!y. M !y)) (cons-val V St)
+   -o {Exists z. run (M !(lookup z)) St * !binding z V}.
+
+% empty - no rules!
+
+% parallism
+run/par : run (par M (\!x. N !x)) St
+   -o {Exists y. run M (sink y) * run (N !(lookup y)) St}.
+run/wait/lookup: run (wait (lookup X) M) St -o binding X V
+   -o {run (wait V M) St}.
+run/wait : run (wait !unit M) St
+   -o {run M St}.
+
+% memory
+run/create : run (create V) St
+   -o {Exists p. run (produce (ref p)) St * @cell p V}.
+run/get/lookup : run (get (lookup X)) St -o binding X V
+   -o {run (get V) St}.
+run/get : run (get (ref X)) St -o cell X V
+   -o {run (produce V) St * @cell X V}.
+run/set/lookup : run (set (lookup X) V') St -o binding X V
+   -o {run (set V V') St}.
+run/set : run (set (ref X) V') St -o cell X _
+   -o {run (produce V') St * @cell X V'}.
+
+% recursion
+run/fix : run (fix (\!v. M !v)) St
+   -o {Exists z. run (M !(lookup z)) St * !binding z (thunk (fix M))}.
+
+% inductive types
+run/unfoldv/lookup : run (unfoldv (lookup X) (\!v. M !v)) St -o binding X V
+   -o {run (unfoldv V M) St}.
+run/unfoldv : run (unfoldv (folded V) (\!v. M !v)) St
+   -o {Exists z. run (M !(lookup z)) St * !binding z V}.
+
+% co-inductive types
+run/unfoldc : run (unfoldc M) St
+   -o {run M (cons-unfoldc St)}.
+run/foldc : run (foldc M) (cons-unfoldc St)
+   -o {run M St}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% SSOS - halting and draining
+
+halt/produce : run (produce V) nil -o printv V V'
+   -o {halt (produce V')}.
+halt/pop-tag : run (pop-tag M1 M2) nil -o printc M1 M1' -o printc M2 M2'
+   -o {halt (pop-tag M1' M2')}.
+halt/pop : run (pop (\!y. M !y)) nil -o printc (pop M) M'
+   -o {halt M'}.
+halt/foldc : run (foldc M) nil -o printc M M'
+   -o {halt (foldc M')}.
+
+% drain
+drain/produce : run (produce V) (sink X) -o {!binding X V}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% simple tests
+
+% letv
+#query * 1 * 1
+run (letv unit (\!v. produce v)) nil -o {halt (produce unit)}.
+
+% produce and bind
+#query * 1 * 1
+run (bind (produce unit) (\!v. produce v)) nil -o {halt (produce unit)}.
+
+% force
+#query * 1 * 1
+run (force (thunk (produce unit))) nil -o {halt (produce unit)}.
+#query * 1 * 1
+run (letv (thunk (produce unit)) (\!v. force v)) nil -o {halt (produce unit)}.
+
+% case
+#query * 1 * 1
+run (case (inr (tuple unit unit)) (\!x. produce unit) (\!y. produce y)) nil
+   -o {halt (produce (tuple unit unit))}.
+#query * 1 * 1
+run (case (inl (tuple unit unit)) (\!x. produce x) (\!y. produce unit)) nil
+   -o {halt (produce (tuple unit unit))}.
+
+% split
+#query * 1 * 1
+run (split (tuple unit unit) (\!x. \!y. produce (tuple x (tuple unit y)))) nil
+   -o {halt (produce (tuple unit (tuple unit unit)))}.
+
+% push-tag
+#query * 1 * 1
+run (pop-tag (produce unit) (produce unit)) nil
+   -o {halt (pop-tag (produce unit) (produce unit))}.
+#query * 1 * 1
+run (push-tag/inl (pop-tag (produce (tuple unit unit)) (produce unit))) nil
+   -o {halt (produce (tuple unit unit))}.
+#query * 1 * 1
+run (push-tag/inr (pop-tag (produce unit) (produce (tuple unit unit)))) nil
+   -o {halt (produce (tuple unit unit))}.
+
+% push and pop
+#query * 1 * 1
+run (push unit (pop (\!y. produce y))) nil -o {halt (produce unit)}.
+#query * 1 * 1
+run (pop (\!y. produce y)) nil -o {halt (pop (\!y. produce y))}.
+
+% parallel
+#query * 1 * 1
+Pi d0. run (produce unit) (sink d0) -o {!binding d0 unit}.
+#query * 1 * 1
+run (par (produce (thunk (produce unit))) (\!x. force x)) nil
+   -o {halt (produce unit)}.
+% there are really two solutions to the following query
+par-test1:
+   run (par (produce unit) (\!x. produce unit)) nil -o {halt (produce unit)} =
+   \r1. {
+      let {[!y, fork-r2, main-r2]} = run/par r1 in
+      let {!fork-b} = drain/produce fork-r2 in
+      let {main-h} = halt/produce main-r2 printv/unit in
+      main-h}.
+par-test2:
+   run (par (produce unit) (\!x. produce unit)) nil -o {halt (produce unit)} =
+   \r1. {
+      let {[!y, fork-r2, main-r2]} = run/par r1 in
+      let {main-h} = halt/produce main-r2 printv/unit in
+      let {!fork-b} = drain/produce fork-r2 in
+      main-h}.
+
+% memory
+#query * 1 * 1
+   run (
+      bind (create unit) (\!p.
+      bind (set !p (tuple unit unit)) (\!v.
+      bind (get !p) (\!v.
+         (produce !v))))) nil
+-o {halt (produce (tuple unit unit))}.
+#query * 1 * 1
+   run (
+      bind (create unit) (\!p.
+      bind (set !p (tuple unit unit)) (\!v.
+         (produce !v)))) nil
+-o {halt (produce (tuple unit unit))}.
+
+% recursion
+% see "challenging tests"
+
+% inductive types
+#query * 1 * 1
+run (unfoldv (folded unit) (\!v. produce !v)) nil
+   -o {halt (produce unit)}.
+
+% co-inductive types
+% see "challenging tests"
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% challenging tests
+
+zero : val = folded !(inl !unit).
+suc : val -> val = \!n. folded (inr !n).
+one : val = suc !zero.
+two : val = suc !one.
+three : val = suc !two.
+four : val = suc !three.
+five : val = suc !four.
+six : val = suc !five.
+seven : val = suc !six.
+eight : val = suc !seven.
+nine : val = suc !eight.
+ten : val = suc !nine.
+eleven : val = suc !ten.
+twelf : val = suc !eleven.
+thirteen : val = suc !twelf.
+fourteen : val = suc !thirteen.
+fifteen : val = suc !fourteen.
+
+plus-fix : comp =
+   fix (\!plus. pop (\!y. pop (\!x.
+      unfoldv x (\!x'.
+      case x'
+         (\!x''. produce y)
+         (\!x''.
+            bind (push x'' (push y (force plus))) (\!r.
+               produce (suc !r))))))).
+
+% test 2 + 2 = 4
+#query * 1 * 1
+run (push two (push two plus-fix)) nil -o {halt (produce four)}.
+
+fib-colist : comp =
+   push one (push one (fix (\!fib.
+      pop (\!y. pop (\!x. foldc
+         (pop-tag
+            (produce x)
+            (bind (push x (push y plus-fix)) (\!z.
+               (push y (push z (force fib))))))))))).
+
+fib-fix : comp =
+      push (thunk fib-colist) (fix (\!fib.
+         pop (\!colist. pop (\!x.
+            unfoldv x (\!x'.
+            case x'
+               (\!x''. push-tag/inl (unfoldc (force colist)))
+               (\!x''. (push x'' (push (thunk (push-tag/inr (unfoldc (force colist)))) (force fib))))))))).
+
+% test fib 5 = 8
+#query * 1 * 1
+run (push five fib-fix) nil -o {halt (produce eight)}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% ultimate tests
+
+% utility
+screen-nil : val = folded unit.
+screen-snoc : val -> val -> val = \!l. \!v. folded (tuple l v).
+
+print : pos -> comp =
+   \!screen. (pop (\!v.
+      bind (get (ref screen)) (\!l.
+      bind (set (ref screen) (screen-snoc !l !v)) (\!screen'.
+         produce unit)))).
+
+backpatch-plus : comp =
+   bind (create (thunk (pop (\!y. pop (\!x. produce x))))) (\!f.
+   bind (set f (thunk (pop (\!y. pop (\!x.
+      unfoldv x (\!x'.
+      case x'
+         (\!x''. produce y)
+         (\!x''.
+            bind (get f) (\!th.
+            bind (push x'' (push y (force th))) (\!r.
+               produce (suc !r)))))))))) (\!th.
+   produce th)).
+
+% test 2 + 2 = 4
+#query * 1 * 1
+run (bind backpatch-plus (\!plus. push two (push two (force plus)))) nil
+   -o {halt (produce four)}.
+
+% this example shows up in the paper
+example-on-paper : pos -> comp =
+   \!screen.
+      bind backpatch-plus (\!plus.
+      % print "hello0"
+      bind (push zero (print !screen)) (\!dummy.
+      % let x be 3 in
+      letv !three (\!x.
+      % let y be thunk (
+      letv (thunk (
+         % print "hello1";
+         bind (push one (print !screen)) (\!dummy.
+         % lambda z
+         pop (\!z.
+            % print "we just popped"z
+            bind (push !z (print !screen)) (\!dummy.
+            % produce x + z
+            push x (push z (force plus))))))) (\!y.
+      % print "hello2";
+      bind (push two (print !screen)) (\!dummy.
+      % (
+      bind (
+         % print "hello3";
+         bind (push three (print !screen)) (\!dummy.
+         % 7'
+         push seven (
+         % print "we just pushed 7";
+         bind (push seven (print !screen)) (\!dummy.
+         % force y
+         force y))))
+         % ) to w in
+         (\!w.
+      % print "w is bound to"w;
+      bind (push w (print !screen)) (\!dummy.
+      % produce w + 5
+      push w (push five (force plus))))))))).
+
+#query * 1 * 1
+Pi screen. cell screen screen-nil * run (example-on-paper !screen) nil
+   -o {halt (produce fifteen) * pretty-cell screen
+         (screen-snoc !(screen-snoc !(screen-snoc !(screen-snoc
+            !(screen-snoc !(screen-snoc !(screen-snoc !screen-nil
+         % hello0
+         !zero)
+         % hello2
+         !two)
+         % hello3
+         !three)
+         % we just pushed 7
+         !seven)
+         % hello1
+         !one)
+         % we just popped 7
+         !seven)
+         % w is bound to 10
+         !ten)}.
