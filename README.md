@@ -1,4 +1,5 @@
-This is our code for the assignment 5 of [15-816 Linear Logic](http://www.cs.cmu.edu/~fp/courses/15816-s12/).
+We are [favonia](http://favonia.org/) and [Flávio Cruz](http://www.cs.cmu.edu/~fmfernan/).
+This is our code for the Assignment 5 of [15-816 Linear Logic](http://www.cs.cmu.edu/~fp/courses/15816-s12/).
 
 We implemented in [Celf](http://clf.github.com/celf/) the operational semantics of Paul Blain Levy's
 call-by-push-value language extended with lazy substitution,
